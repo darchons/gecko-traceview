@@ -2,6 +2,13 @@
   "name": "gecko-traceview",
   "private": true,
   "dependencies": {
-    "bootstrap": "~3.2.0"
+    "bootstrap": "~3.2.0",
+    "jquery-ui": "~1.11.4",
+    "bower-jqrangeslider": "https://github.com/mrzmyr/jQRangeSlider.git#master",
+    "jcanvas": "~14.11.25",
+    "chroma-js": "~0.6.1"
+  },
+  "resolutions": {
+    "jquery-ui": "~1.11.4"
   }
 }
