@@ -364,6 +364,12 @@ module.exports = function (grunt) {
         }, {
           expand: true,
           dot: true,
+          cwd: 'bower_components/bower-jqrangeslider/css',
+          src: 'icons-classic/*',
+          dest: '<%= config.dist %>/styles'
+        }, {
+          expand: true,
+          dot: true,
           cwd: 'bower_components/bootstrap/dist',
           src: 'fonts/*',
           dest: '<%= config.dist %>'

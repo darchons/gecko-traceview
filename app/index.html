@@ -23,29 +23,50 @@
     <![endif]-->
 
     <div class="header">
-      <ul class="nav nav-pills pull-right">
-        <li class="active"><a href="#">Home</a></li>
-      </ul>
+      <form class="navbar-form navbar-link pull-right" role="search">
+        <select id="tracefile" class="form-control">
+          <option value="trace-start.json" selected>Normal startup</option>
+          <option value="trace-startload.json">Local URL startup</option>
+          <option value="trace-load.json">Page load</option>
+        </select>
+      </form>
       <h3 class="text-muted">Gecko Traceview</h3>
     </div>
 
     <div class="traceview">
-      <canvas class="plot" width="500px" height="500px"></canvas>
-      <div class="tooltip top" role="tooltip">
-        <div class="tooltip-arrow"></div>
-        <div class="tooltip-inner">
-          Tooltip on the top
+      <div class="plot-container">
+        <canvas class="plot" width="800" height="600"></canvas>
+        <div class="marker">
+          <div class="timestamp"></div>
+        </div>
+        <div class="tooltip in" role="tooltip">
+          <div class="tooltip-inner"></div>
         </div>
       </div>
       <div class="slider"></div>
     </div>
 
+    <div class="stats spacer">
+      <table class="table table-striped sortable">
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>Count</th>
+            <th>Average (ms)</th>
+            <th>Total (ms)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
     <!-- build:js(.) scripts/vendor.js -->
     <!-- bower:js -->
     <script src="bower_components/jquery/dist/jquery.js"></script>
     <script src="bower_components/jquery-ui/jquery-ui.js"></script>
     <script src="bower_components/jcanvas/jcanvas.js"></script>
     <script src="bower_components/chroma-js/chroma.js"></script>
+    <script src="bower_components/moment/moment.js"></script>
+    <script src="bower_components/bootstrap-sortable/Scripts/bootstrap-sortable.js"></script>
     <!-- endbower -->
     <script src="bower_components/bower-jqrangeslider/jQRangeSlider-min.js"></script>
     <!-- endbuild -->

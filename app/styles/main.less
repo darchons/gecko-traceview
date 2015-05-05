@@ -34,12 +34,39 @@ body {
   margin: 30px 0;
 }
 
-.traceview>.slider {
+.traceview .slider {
   margin-top: 1em;
 }
 
-.tooltip>.tooltip-inner {
+.tooltip .tooltip-inner {
   max-width: none;
+}
+
+.spacer {
+  margin-top: 40px;
+}
+
+.stats th:first-child {
+  width: 50%;
+}
+
+.sortable>thead {
+  cursor: pointer;
+}
+
+.marker {
+  position: absolute;
+  display: none;
+  background-color: #ccc;
+  width: 1px;
+  overflow: visible;
+  opacity: 0.5;
+
+  .timestamp {
+    padding: 0px 10px;
+    text-align: center;
+    color: #000;
+  }
 }
 
 /* Responsive: Portrait tablets and up */
