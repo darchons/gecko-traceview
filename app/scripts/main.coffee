@@ -79,8 +79,8 @@ escapeHTML = (str) -> (str && str.replace(/</g, "&lt;").replace(/>/g, "&gt;"))
 
 drawn_frames = []
 
-getLabel = (trace, idx) ->
-    label = trace.strings[idx]
+getLabel = (thread, idx) ->
+    label = thread.stringTable[idx]
     lpar = label.lastIndexOf "("
     slash = label.lastIndexOf "/"
     colon = label.lastIndexOf ":"
@@ -90,13 +90,12 @@ getLabel = (trace, idx) ->
     else if lpar < 0 and slash >= 0 and colon > slash
         # file:line
         return label[slash + 1...]
-    label
+    label.replace "(<native>:0)", "<native>"
 
-process = (elems, trace, thread) ->
+setSlider = (elems, thread) ->
     slider = elems.slider
-    table = elems.table
-    min = thread.times[0]
-    max = thread.times[thread.times.length - 1]
+    min = thread.trace.data[0][1]
+    max = thread.trace.data[thread.trace.data.length - 1][1]
 
     slider.rangeSlider
         bounds:
@@ -104,20 +103,25 @@ process = (elems, trace, thread) ->
             max: max
         defaultValues:
             min: min
-            max: max
+            max: (max - min) * 2 / 3 + min
         range:
             min: 15 * (max - min) / slider.width()
         formatter: (value) -> (Math.round(value) + "ms")
         valueLabels: "change"
 
+populateTiming = (elems, thread, range) ->
+    table = elems.table
+    start = binarySearch thread.trace.data, range.min, (t) -> t[1]
+    end = binarySearch thread.trace.data, range.max, (t) -> t[1]
+
     stack = []
     labels = []
     stats = {}
 
-    for i in [0...thread.labels.length]
-        [prevTime, time] = [time, thread.times[i]]
+    for i in [start...end]
+        [prevTime, time] = [time, thread.trace.data[i][1]]
 
-        label = getLabel trace, thread.labels[i]
+        label = getLabel thread, thread.trace.data[i][0]
         prevLabel = if label.length then stack[stack.length - 1] else stack.pop()
         stack.push label if label.length
 
@@ -135,8 +139,11 @@ process = (elems, trace, thread) ->
         stats[prevLabel].time += time - prevTime
 
     for label in stack
+        continue if not stats[label]
         stats[label].count++
 
+    labels.sort (a, b) -> (stats[b].time - stats[a].time)
+    table.empty()
     for label, i in labels
         stat = stats[label]
         table.append(
@@ -149,20 +156,28 @@ process = (elems, trace, thread) ->
 
     $.bootstrapSortable()
 
-redraw = (elems, trace, thread, range) ->
+redraw = (elems, thread, range) ->
     plot = elems.plot
     min = range.min # time at start of view
     duration = range.max - range.min # time duration inside view
-    start = binarySearch thread.times, min # index of frame that first starts in view
-    end = binarySearch thread.times, range.max # index of frame that last ends in view
+    # index of frame that first starts in view
+    start = binarySearch thread.trace.data, min, (t) -> t[1]
+    # index of frame that last ends in view
+    end = binarySearch thread.trace.data, range.max, (t) -> t[1]
 
     WIDTH = plot.width()
     HEIGHT = plot.height()
     FRAME_STRIDE = HEIGHT / 25
     FRAME_HEIGHT = FRAME_STRIDE * 0.8
     MIN_FRAME_WIDTH = 4 / WIDTH
+    FONT_HEIGHT = parseFloat(plot.css('fontSize'))
 
-    ctx = plot.clearCanvas()
+    ctx = plot[0].getContext "2d"
+    ctx.font = "1em sans-serif"
+    ctx.textAlign = "left"
+    ctx.textBaseline = "top"
+    ctx.fillStyle = "#fff"
+    ctx.fillRect 0, 0, WIDTH, HEIGHT
 
     # ruler_scale = Math.pow 10, "#{Math.floor 50 * duration / WIDTH}".length
     # ruler_start = ruler_scale * Math.ceil(min / ruler_scale) - min
@@ -199,15 +214,18 @@ redraw = (elems, trace, thread, range) ->
             222 - 222 * Math.atan((frame.multiplicity or 0) / 20) * 2 / Math.PI, 0.55, 0.55)
         label = frame.label
 
-        ctx.drawRect
-            x: x
-            y: y
-            width: width
-            height: height
-            fillStyle: color.hex()
-            strokeWidth: 1
-            strokeStyle: color.darken().hex()
-            fromCenter: false
+        ctx.fillStyle = color.hex()
+        ctx.fillRect x, y, width, height
+        ctx.strokeStyle = color.darken().hex()
+        ctx.strokeRect x, y, width, height
+
+        if not frame.multiplicity and width > 4 * MIN_FRAME_WIDTH
+            metrics = ctx.measureText label
+            if metrics.width + 2 * MIN_FRAME_WIDTH <= width
+                ctx.fillStyle = "#fff"
+                ctx.fillText label,
+                    x + (width - metrics.width) / 2,
+                    y + (height - FONT_HEIGHT) / 2
 
         drawn_frames.push
             left: x
@@ -219,25 +237,9 @@ redraw = (elems, trace, thread, range) ->
             multiplicity: frame.multiplicity
             duration: Math.round (frame.right - frame.left) * duration
 
-        if not frame.multiplicity and width > 4 * MIN_FRAME_WIDTH
-            textOptions =
-                x: x
-                y: y
-                fillStyle: "#fff"
-                strokeWidth: 0
-                fontSize: "1em"
-                text: label
-                fromCenter: false
-                maxWidth: 1000
-            textDims = ctx.measureText textOptions
-            if textDims.width + 2 * MIN_FRAME_WIDTH <= width
-                textOptions.x += (width - textDims.width) / 2
-                textOptions.y += (height - textDims.height) / 2
-                ctx.drawText textOptions
-
     # prefill with frames that started to the left of view
     for i in [0...start] by 1
-        label = getLabel trace, thread.labels[i]
+        label = getLabel thread, thread.trace.data[i][0]
         if not label.length
             # popping a frame; discard from active stack
             active_count--
@@ -253,8 +255,8 @@ redraw = (elems, trace, thread, range) ->
 
     # draw frames within view
     for i in [start...end] by 1
-        label = getLabel trace, thread.labels[i]
-        pos = (thread.times[i] - min) / duration
+        label = getLabel thread, thread.trace.data[i][0]
+        pos = (thread.trace.data[i][1] - min) / duration
         if label.length
             # push an unfinished frame onto stack
             active_stack.push null while active_count >= active_stack.length
@@ -307,7 +309,7 @@ redraw = (elems, trace, thread, range) ->
 
     drawn_frames.sort (a, b) -> a.right - b.right
 
-initialize = (trace, thread) ->
+initialize = (thread) ->
     elems =
         container: $(".traceview .plot-container")
         plot: $(".traceview .plot")
@@ -320,15 +322,18 @@ initialize = (trace, thread) ->
     elems.marker.height elems.plot.height()
 
     dragging = null
+    setSlider elems, thread
 
-    process elems, trace, thread
-    redraw elems, trace, thread, elems.slider.rangeSlider "values"
+    redraw elems, thread, elems.slider.rangeSlider "values"
     elems.slider.on "valuesChanging", (e, data) ->
         window.requestAnimationFrame () ->
             dragging = null
             elems.marker.hide()
-            elems.marker.width 1
-            redraw elems, trace, thread, data.values
+            redraw elems, thread, data.values
+
+    populateTiming elems, thread, elems.slider.rangeSlider "values"
+    elems.slider.on "valuesChanged", (e, data) ->
+        populateTiming elems, thread, data.values
 
     mousemove = (e) ->
         TOOLTIP_SPACING = 10
@@ -341,18 +346,25 @@ initialize = (trace, thread) ->
             dragging_width = Math.abs e.pageX - dragging.x
             elems.timestamp.text "<#{Math.round(dragging_width / elems.plot.width() *
                                      (range.max - range.min))}ms>"
-            elems.marker.width Math.max(1, dragging_width)
+            elems.marker.removeClass("zoomin").width Math.max(1, dragging_width)
             elems.marker.offset
                 left: Math.min e.pageX, dragging.x
                 top: plotOffset.top
             return
 
-        if not dragging?.stopped
+        if not dragging or not dragging.stopped
             elems.timestamp.text "#{Math.round(x / elems.plot.width() *
                                     (range.max - range.min) + range.min)}ms"
-            elems.marker.show().offset
+            elems.marker.removeClass("zoomin").width(1).show().offset
                 left: e.pageX
                 top: plotOffset.top
+        else
+            elems.marker.addClass("zoomin")
+            markerOffset = elems.marker.offset()
+            if (e.pageX > markerOffset.left and
+                    e.pageX < markerOffset.left + elems.marker.width())
+                elems.tooltip.hide()
+                return
 
         for i in [start...drawn_frames.length] by 1
             frame = drawn_frames[i]
@@ -360,12 +372,12 @@ initialize = (trace, thread) ->
                 continue
 
             if frame.labels
-                label = "#{frame.multiplicity} labels<br>"
+                label = "#{frame.multiplicity} labels:<br><br>"
                 labels = Object.keys frame.labels
                 labels.sort (a, b) ->
                     frame.labels[b] - frame.labels[a]
-                label += ("#{frame.labels[l]}&times; " +
-                          escapeHTML(l) for l in labels[...3]).join '<br>'
+                label += ("#{frame.labels[l]} &times; " +
+                          "#{escapeHTML(l)}<br>" for l in labels[...3]).join ""
             else
                 label = escapeHTML(frame.label)
             label += "<br>spanning #{frame.duration}ms"
@@ -390,6 +402,28 @@ initialize = (trace, thread) ->
     mousedown = (e) ->
         if elems.tooltip.is(':visible')
             return
+
+        markerOffset = elems.marker.offset()
+        markerWidth = elems.marker.width()
+        if (dragging?.stopped and e.pageX > markerOffset.left and
+                e.pageX < markerOffset.left + markerWidth)
+            plotOffset = elems.plot.offset()
+            plotWidth = elems.plot.width()
+            range = elems.slider.rangeSlider "values"
+            dragging = null
+            offsetToValue = (offset) ->
+                (offset - plotOffset.left) / plotWidth * (range.max - range.min) + range.min
+            newRange =
+                min: offsetToValue(markerOffset.left)
+                max: offsetToValue(markerOffset.left + markerWidth)
+            elems.slider.rangeSlider "values", newRange.min, newRange.max
+            elems.slider.trigger "valuesChanging",
+                values: newRange
+            elems.slider.trigger "valuesChanged",
+                values: newRange
+            mousemove e
+            return
+
         dragging =
             x: e.pageX
             y: e.pageY
@@ -414,5 +448,5 @@ $ ->
     tracefile = $("#tracefile")
     tracefile.change () ->
         $.getJSON tracefile.val()
-            .done (file) -> initialize(file, file.trace[0])
+            .done (file) -> initialize(file.threads[0])
     tracefile.trigger "change"
