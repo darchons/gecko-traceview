@@ -156,14 +156,16 @@ populateTiming = (elems, thread, range) ->
 
     $.bootstrapSortable()
 
-redraw = (elems, thread, range) ->
+redraw = (elems, thread, options) ->
     plot = elems.plot
-    min = range.min # time at start of view
-    duration = range.max - range.min # time duration inside view
+    min = options.range.min # time at start of view
+    duration = options.range.max - options.range.min # time duration inside view
     # index of frame that first starts in view
     start = binarySearch thread.trace.data, min, (t) -> t[1]
     # index of frame that last ends in view
-    end = binarySearch thread.trace.data, range.max, (t) -> t[1]
+    end = binarySearch thread.trace.data, options.range.max, (t) -> t[1]
+
+    options.filter = options.filter and options.filter.toLowerCase()
 
     WIDTH = plot.width()
     HEIGHT = plot.height()
@@ -171,6 +173,7 @@ redraw = (elems, thread, range) ->
     FRAME_HEIGHT = FRAME_STRIDE * 0.8
     MIN_FRAME_WIDTH = 4 / WIDTH
     FONT_HEIGHT = parseFloat(plot.css('fontSize'))
+    MARKER_SPACING = 5
 
     ctx = plot[0].getContext "2d"
     ctx.font = "1em sans-serif"
@@ -178,6 +181,35 @@ redraw = (elems, thread, range) ->
     ctx.textBaseline = "top"
     ctx.fillStyle = "#fff"
     ctx.fillRect 0, 0, WIDTH, HEIGHT
+
+    marker_end = []
+    ctx.beginPath()
+    for m in thread.markers.data
+        [label, time, data] = m
+        if time < min
+            continue
+        if time >= min + duration
+            break
+        if data and data.type == 'tracing'
+            continue
+
+        left = (time - min) / duration * WIDTH
+        for line in [0...marker_end.length] by 1
+            if marker_end[line] < left
+                break
+        marker_end.push 0 while line >= marker_end.length
+
+        top = (line + 2) * FRAME_HEIGHT
+        ctx.strokeStyle = "#ccc"
+        ctx.moveTo left, top
+        ctx.lineTo left, HEIGHT
+
+        label = thread.stringTable[label]
+        ctx.fillStyle = "#888"
+        ctx.fillText label, left + MARKER_SPACING, top
+        metrics = ctx.measureText label
+        marker_end[line] = left + metrics.width + 2 * MARKER_SPACING
+    ctx.stroke()
 
     # ruler_scale = Math.pow 10, "#{Math.floor 50 * duration / WIDTH}".length
     # ruler_start = ruler_scale * Math.ceil(min / ruler_scale) - min
@@ -212,6 +244,10 @@ redraw = (elems, thread, range) ->
         height = FRAME_HEIGHT
         color = chroma.hsl(
             222 - 222 * Math.atan((frame.multiplicity or 0) / 20) * 2 / Math.PI, 0.55, 0.55)
+        if not frame.marked
+            lch = color.lch()
+            lch[1] = 0
+            color = chroma.lch lch
         label = frame.label
 
         ctx.fillStyle = color.hex()
@@ -251,6 +287,10 @@ redraw = (elems, thread, range) ->
             left: 0
             right: 0
             top: active_count
+            marked: not options.filter
+        if options.filter and label.toLowerCase().indexOf(options.filter) >= 0
+            for f in active_stack
+                f.marked = true
         active_count++
 
     # draw frames within view
@@ -265,6 +305,10 @@ redraw = (elems, thread, range) ->
                 left: pos
                 right: 0
                 top: active_count
+                marked: not options.filter
+            if options.filter and label.toLowerCase().indexOf(options.filter) >= 0
+                for f in active_stack
+                    f.marked = true
             active_count++
             continue
 
@@ -282,6 +326,7 @@ redraw = (elems, thread, range) ->
                 merger.right = pos
                 merger.multiplicity = (merger.multiplicity or 1) + 1
                 merger.labels[frame.label] = (merger.labels[frame.label] or 0) + 1
+                merger.marked = merger.marked or frame.marked
                 continue
 
             if merger and merger.right - merger.left >= MIN_FRAME_WIDTH
@@ -318,22 +363,33 @@ initialize = (thread) ->
         timestamp: $(".traceview .marker .timestamp")
         slider: $(".traceview .slider")
         table: $(".stats tbody")
+        filter: $(".filter")
     elems.plot.attr "width", elems.slider.width() # also clears the canvas
     elems.marker.height elems.plot.height()
 
     dragging = null
     setSlider elems, thread
 
-    redraw elems, thread, elems.slider.rangeSlider "values"
+    options =
+        range: elems.slider.rangeSlider "values"
+        filter: elems.filter.val()
+
+    redraw elems, thread, options
     elems.slider.on "valuesChanging", (e, data) ->
         window.requestAnimationFrame () ->
             dragging = null
             elems.marker.hide()
-            redraw elems, thread, data.values
+            options.range = data.values
+            redraw elems, thread, options
+    elems.filter.on "input", (e) ->
+        window.requestAnimationFrame () ->
+            options.filter = elems.filter.val()
+            redraw elems, thread, options
 
-    populateTiming elems, thread, elems.slider.rangeSlider "values"
+    populateTiming elems, thread, options.range
     elems.slider.on "valuesChanged", (e, data) ->
-        populateTiming elems, thread, data.values
+        options.range = data.values
+        populateTiming elems, thread, options.range
 
     mousemove = (e) ->
         TOOLTIP_SPACING = 10
