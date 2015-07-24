@@ -111,8 +111,8 @@ setSlider = (elems, thread) ->
 
 populateTiming = (elems, thread, range) ->
     table = elems.table
-    start = binarySearch thread.trace.data, range.min, (t) -> t[1]
-    end = binarySearch thread.trace.data, range.max, (t) -> t[1]
+    start = binarySearch thread.trace.data, range.min, (t) -> t?[1]
+    end = binarySearch thread.trace.data, range.max, (t) -> t?[1]
 
     stack = []
     labels = []
@@ -161,9 +161,9 @@ redraw = (elems, thread, options) ->
     min = options.range.min # time at start of view
     duration = options.range.max - options.range.min # time duration inside view
     # index of frame that first starts in view
-    start = binarySearch thread.trace.data, min, (t) -> t[1]
+    start = binarySearch thread.trace.data, min, (t) -> t?[1]
     # index of frame that last ends in view
-    end = binarySearch thread.trace.data, options.range.max, (t) -> t[1]
+    end = binarySearch thread.trace.data, options.range.max, (t) -> t?[1]
 
     options.filter = options.filter and options.filter.toLowerCase()
 
@@ -174,6 +174,8 @@ redraw = (elems, thread, options) ->
     MIN_FRAME_WIDTH = 4 / WIDTH
     FONT_HEIGHT = parseFloat(plot.css('fontSize'))
     MARKER_SPACING = 5
+    HEADER_HEIGHT = 1.5 * FRAME_HEIGHT
+    MAX_PAINT_MARKERS = 4
 
     ctx = plot[0].getContext "2d"
     ctx.font = "1em sans-serif"
@@ -190,7 +192,7 @@ redraw = (elems, thread, options) ->
             continue
         if time >= min + duration
             break
-        if data and data.type == 'tracing'
+        if data and data.type == "tracing"
             continue
 
         left = (time - min) / duration * WIDTH
@@ -199,7 +201,7 @@ redraw = (elems, thread, options) ->
                 break
         marker_end.push 0 while line >= marker_end.length
 
-        top = (line + 2) * FRAME_HEIGHT
+        top = line * FRAME_HEIGHT + HEADER_HEIGHT
         ctx.strokeStyle = "#ccc"
         ctx.moveTo left, top
         ctx.lineTo left, HEIGHT
@@ -240,6 +242,10 @@ redraw = (elems, thread, options) ->
     _drawFrame = (frame) ->
         x = WIDTH * frame.left
         y = HEIGHT - (frame.top + 1) * FRAME_STRIDE
+
+        if y < HEADER_HEIGHT
+            return
+
         width = WIDTH * (frame.right - frame.left)
         height = FRAME_HEIGHT
         color = chroma.hsl(
