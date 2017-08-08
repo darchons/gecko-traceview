@@ -4,11 +4,19 @@
   "dependencies": {
     "bootstrap": "~3.2.0",
     "jquery-ui": "~1.11.4",
-    "bower-jqrangeslider": "https://github.com/mrzmyr/jQRangeSlider.git#master",
     "chroma-js": "~0.6.1",
-    "bootstrap-sortable": "~1.11.1"
+    "bootstrap-sortable": "~1.11.1",
+    "jQRangeSlider": "https://github.com/mrzmyr/jQRangeSlider.git#master"
   },
   "resolutions": {
     "jquery-ui": "~1.11.4"
+  },
+  "overrides": {
+    "jQRangeSlider": {
+      "main": [
+         "./jQRangeSlider-min.js",
+         "./css/classic-min.css"
+      ]
+    }
   }
 }
