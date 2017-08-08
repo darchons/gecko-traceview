@@ -30,7 +30,7 @@ _smartUnits = (values, names, precisions) ->
             continue if value < values[i]
             return (value / values[i]).toPrecision(
                 precisions[Math.min precisions.length - 1, i]) + names[i]
-        value.toPrecision precisions[precisions.length - 1]
+        (value.toPrecision precisions[precisions.length - 1]) + names[names.length - 1]
 
 _revSmartUnits = (values, names) ->
     (value) ->
@@ -56,8 +56,8 @@ revSmartPrefix = _revSmartUnits(
 # Format a number of seconds into appropriate time units. e.g. smartTime(3600) === '1h'
 smartTime = _smartUnits(
     [31556952, 604800, 86400, 3600, 60, 1, 1e-3, 1e-6, 1e-9, 1e-12]
-    ['y', 'w', 'd', 'h', 'm', 's', 'ms', 'μs', 'ns', 'ps', '']
-    [2, 2, 2, 2, 2, 2, 3])
+    ['y', 'w', 'd', 'h', 'm', 's', 'ms', 'μs', 'ns', 'ps', 's']
+    [2, 2, 2, 2, 2, 3])
 
 # Format a fraction number into a percentage. e.g. smartPercent(0.1) === '10.0%'
 smartPercent = (v) -> ((v * 100).toPrecision(3) + "%")
@@ -91,6 +91,9 @@ getLabel = (thread, idx) ->
         # file:line
         return label[slash + 1...]
     label.replace "(<native>:0)", "<native>"
+
+skipLabel = (label) ->
+    label in ["js::RunScript", "import <native>"]
 
 setSlider = (elems, thread) ->
     slider = elems.slider
@@ -192,7 +195,11 @@ redraw = (elems, thread, options) ->
             continue
         if time >= min + duration
             break
-        if data and data.type == "tracing"
+
+        label = thread.stringTable[label]
+        if (data and data.type in ["tracing", "GCMinor", "GCSlice", "DOMEvent"]) or
+           label.startsWith("Bailout_") or
+           label.startsWith("Navigation::")
             continue
 
         left = (time - min) / duration * WIDTH
@@ -206,7 +213,6 @@ redraw = (elems, thread, options) ->
         ctx.moveTo left, top
         ctx.lineTo left, HEIGHT
 
-        label = thread.stringTable[label]
         ctx.fillStyle = "#888"
         ctx.fillText label, left + MARKER_SPACING, top
         metrics = ctx.measureText label
@@ -238,13 +244,14 @@ redraw = (elems, thread, options) ->
     active_count = 0 # number of active frames in active_stack
     mergeable_frames = [] # finished frames waiting to be merged
     drawn_frames = []
+    skip_count = 0 # number of active frames that we should skip
 
     _drawFrame = (frame) ->
         x = WIDTH * frame.left
         y = HEIGHT - (frame.top + 1) * FRAME_STRIDE
 
-        if y < HEADER_HEIGHT
-            return
+        return if frame.skip
+        return if y < HEADER_HEIGHT
 
         width = WIDTH * (frame.right - frame.left)
         height = FRAME_HEIGHT
@@ -277,14 +284,16 @@ redraw = (elems, thread, options) ->
             label: label
             labels: frame.labels
             multiplicity: frame.multiplicity
-            duration: Math.round (frame.right - frame.left) * duration
+            duration: (frame.right - frame.left) * duration
 
     # prefill with frames that started to the left of view
     for i in [0...start] by 1
         label = getLabel thread, thread.trace.data[i][0]
+        skip = skipLabel label
         if not label.length
             # popping a frame; discard from active stack
-            active_count--
+            active_count = Math.max active_count - 1, 0
+            skip_count-- if active_count >= 0 and active_stack[active_count].skip
             continue
         # pushing an unfinished frame
         active_stack.push null while active_count >= active_stack.length
@@ -292,16 +301,19 @@ redraw = (elems, thread, options) ->
             label: label
             left: 0
             right: 0
-            top: active_count
+            top: active_count - skip_count
             marked: not options.filter
+            skip: skip
         if options.filter and label.toLowerCase().indexOf(options.filter) >= 0
             for f in active_stack
                 f.marked = true
         active_count++
+        skip_count++ if skip
 
     # draw frames within view
     for i in [start...end] by 1
         label = getLabel thread, thread.trace.data[i][0]
+        skip = skipLabel label
         pos = (thread.trace.data[i][1] - min) / duration
         if label.length
             # push an unfinished frame onto stack
@@ -310,29 +322,36 @@ redraw = (elems, thread, options) ->
                 label: label
                 left: pos
                 right: 0
-                top: active_count
+                top: active_count - skip_count
                 marked: not options.filter
+                skip: skip
             if options.filter and label.toLowerCase().indexOf(options.filter) >= 0
                 for f in active_stack
                     f.marked = true
             active_count++
+            skip_count++ if skip
+            continue
+
+        if not active_count
             continue
 
         # popping a frame; finish the frame
         active_count--
         frame = active_stack[active_count]
         frame.right = pos
+        skip_count-- if frame.skip
 
         if pos - frame.left < MIN_FRAME_WIDTH
             # save for merging later
-            mergeable_frames.push null while active_count >= mergeable_frames.length
-            merger = mergeable_frames[active_count]
+            mergeable_frames.push null while frame.top >= mergeable_frames.length
+            merger = mergeable_frames[frame.top]
             if frame.left - merger?.right < MIN_FRAME_WIDTH
                 # merge with previous frame
                 merger.right = pos
                 merger.multiplicity = (merger.multiplicity or 1) + 1
                 merger.labels[frame.label] = (merger.labels[frame.label] or 0) + 1
                 merger.marked = merger.marked or frame.marked
+                merger.skip = false
                 continue
 
             if merger and merger.right - merger.left >= MIN_FRAME_WIDTH
@@ -342,7 +361,7 @@ redraw = (elems, thread, options) ->
             frame.labels = {}
             frame.labels[frame.label] = 1
             # replace previous unmerged frame
-            mergeable_frames[active_count] = frame
+            mergeable_frames[frame.top] = frame
             continue
 
         # draw now
@@ -406,8 +425,8 @@ initialize = (thread) ->
 
         if dragging and not dragging.stopped
             dragging_width = Math.abs e.pageX - dragging.x
-            elems.timestamp.text "<#{Math.round(dragging_width / elems.plot.width() *
-                                     (range.max - range.min))}ms>"
+            elems.timestamp.text "<#{smartTime dragging_width / elems.plot.width() *
+                                     (range.max - range.min) / 1e3}>"
             elems.marker.removeClass("zoomin").width Math.max(1, dragging_width)
             elems.marker.offset
                 left: Math.min e.pageX, dragging.x
@@ -442,7 +461,7 @@ initialize = (thread) ->
                           "#{escapeHTML(l)}<br>" for l in labels[...3]).join ""
             else
                 label = escapeHTML(frame.label)
-            label += "<br>spanning #{frame.duration}ms"
+            label += "<br>spanning #{smartTime frame.duration / 1e3}"
 
             elems.tooltip.children(".tooltip-inner").html label
             elems.tooltip.show().offset(
