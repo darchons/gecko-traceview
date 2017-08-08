@@ -26,9 +26,23 @@
       <form class="navbar-form navbar-link pull-right" role="search">
         <input class="filter form-control" type="text" class="form-control" placeholder="Filter">
         <select id="tracefile" class="form-control">
-          <option value="trace-start.json" selected>Normal startup</option>
-          <option value="trace-startload.json">Local URL startup</option>
-          <option value="trace-load.json">Page load</option>
+          <optgroup label="GeckoView non-e10s (Fx57)">
+            <option value="gv-s7-about.json">GalaxyS7 about:mozilla</option>
+            <option value="gv-s7-mozilla.json">GalaxyS7 mozilla.com</option>
+            <option value="gv-n4-about.json">Nexus4 about:mozilla</option>
+            <option value="gv-n4-mozilla.json">Nexus4 mozilla.com</option>
+          </optgroup>
+          <optgroup label="GeckoView e10s (Fx57)">
+            <option value="gv-s7-about-e10s.json">GalaxyS7 about:mozilla</option>
+            <option value="gv-s7-mozilla-e10s.json">GalaxyS7 mozilla.com</option>
+            <option value="gv-n4-about-e10s.json">Nexus4 about:mozilla</option>
+            <option value="gv-n4-mozilla-e10s.json">Nexus4 mozilla.com</option>
+          </optgroup>
+          <optgroup label="Fennec (Fx42)">
+            <option value="trace-start.json">Normal startup</option>
+            <option value="trace-startload.json">Local URL startup</option>
+            <option value="trace-load.json">Page load</option>
+          </optgroup>
         </select>
       </form>
       <h3 class="text-muted">Gecko Traceview</h3>
